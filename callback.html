@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#101828">
+    <title>Yahoo connection · Fantasy Assistant</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="callback-layout">
+      <div class="callback-card">
+        <span class="brand-mark" aria-hidden="true">FA</span>
+        <p class="eyebrow">YAHOO CONNECTION</p>
+        <h1>Connection setup is in progress.</h1>
+        <p>This page is the registered return address for Yahoo authorization. The app does not process your league data yet.</p>
+        <a class="button button-primary" href="./">Back to Fantasy Assistant <span aria-hidden="true">↗</span></a>
+      </div>
+    </main>
+    <script>
+      // Remove temporary OAuth parameters from the visible URL until sign-in is implemented.
+      if (location.search || location.hash) history.replaceState(null, "", location.pathname);
+    </script>
+  </body>
+</html>
