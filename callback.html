@@ -4,6 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#101828">
+    <meta name="referrer" content="no-referrer">
     <title>Yahoo connection · Fantasy Assistant</title>
     <link rel="stylesheet" href="styles.css">
   </head>
@@ -12,14 +13,22 @@
       <div class="callback-card">
         <span class="brand-mark" aria-hidden="true">FA</span>
         <p class="eyebrow">YAHOO CONNECTION</p>
-        <h1>Connection setup is in progress.</h1>
-        <p>This page is the registered return address for Yahoo authorization. The app does not process your league data yet.</p>
+        <h1>Finishing your Yahoo connection.</h1>
+        <p>This page is Yahoo's registered return address. Start the local app first, then select Connect Yahoo there.</p>
         <a class="button button-primary" href="./">Back to Fantasy Assistant <span aria-hidden="true">↗</span></a>
+        <noscript><p>JavaScript is needed to complete the return to your local app.</p></noscript>
       </div>
     </main>
     <script>
-      // Remove temporary OAuth parameters from the visible URL until sign-in is implemented.
-      if (location.search || location.hash) history.replaceState(null, "", location.pathname);
+      const params = new URLSearchParams(location.search);
+      const allowed = new URLSearchParams();
+      for (const key of ["code", "state", "error"]) {
+        if (params.has(key)) allowed.set(key, params.get(key));
+      }
+      history.replaceState(null, "", location.pathname);
+      if (allowed.has("state") && (allowed.has("code") || allowed.has("error"))) {
+        location.replace(`http://127.0.0.1:8765/finish?${allowed}`);
+      }
     </script>
   </body>
 </html>
