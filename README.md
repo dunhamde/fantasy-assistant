@@ -18,4 +18,6 @@ The public site is hosted on GitHub Pages from the `main` branch root. It contai
 
 The server listens only on your computer (`127.0.0.1`). It keeps the PKCE verifier in memory for ten minutes and does not save tokens. Each test requires a fresh Yahoo connection. The local server must stay running until Yahoo redirects back.
 
+If Yahoo login succeeds but the Fantasy API responds `403: This application is not authorized to perform this action`, use Yahoo's [application confirmation form](https://sports.yahoo.com/developer/application-confirmation/) to submit this app's Client ID. Yahoo says Fantasy API access is provisioned after it receives the signed agreement and developer account information.
+
 Yahoo currently states that the Fantasy Sports API is read-only, so roster moves and trades must be made in Yahoo Fantasy.

@@ -8,6 +8,7 @@ const REDIRECT_URI = "https://dunhamde.github.io/fantasy-assistant/callback.html
 const FANTASY_ENDPOINT = "https://fantasysports.yahooapis.com/fantasy/v2/users;use_login=1/games;game_keys=nfl/leagues?format=json";
 const PORT = 8765;
 const pending = new Map();
+const results = new Map();
 
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
@@ -20,6 +21,15 @@ function page(title, body) {
 function sendPage(res, status, title, body) {
   res.writeHead(status, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'" });
   res.end(page(title, body));
+}
+
+function redirectToResult(res, status, title, body) {
+  const ticket = randomUrlSafe(18);
+  const now = Date.now();
+  for (const [key, value] of results) if (now - value.issued > 300_000) results.delete(key);
+  results.set(ticket, { status, title, body, issued: now });
+  res.writeHead(303, { Location: `/result?ticket=${ticket}`, "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" });
+  res.end();
 }
 
 function extractLeagues(value, found = new Map()) {
@@ -44,7 +54,15 @@ async function exchangeCode(code, verifier) {
 async function readLeagues(accessToken) {
   const response = await fetch(FANTASY_ENDPOINT, { headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" }, signal: AbortSignal.timeout(15_000) });
   const body = await response.text();
-  if (!response.ok) throw new Error(`Yahoo Fantasy API returned ${response.status}. ${body.includes("additional_authorization_required") ? "Yahoo may still need to provision this Client ID for Fantasy API access." : "Check Fantasy Sports – Read permission and Yahoo provisioning."}`);
+  if (!response.ok) {
+    let detail = "";
+    try { detail = JSON.parse(body).error?.description || ""; } catch { detail = body.match(/<description>([^<]*)<\/description>/)?.[1] || ""; }
+    detail = String(detail).slice(0, 350);
+    const provisioningHint = response.status === 403 && detail.includes("This application is not authorized")
+      ? " Yahoo may still need to provision this Client ID for Fantasy API access."
+      : "";
+    throw new Error(`Yahoo Fantasy API returned ${response.status}${detail ? `: ${detail}` : ""}.${provisioningHint}`);
+  }
   try { return JSON.parse(body); } catch { throw new Error("Yahoo returned an unexpected non-JSON Fantasy API response."); }
 }
 
@@ -64,16 +82,16 @@ async function finishAuthorization(url, res) {
   const state = url.searchParams.get("state");
   const session = state ? pending.get(state) : null;
   if (state) pending.delete(state);
-  if (url.searchParams.get("error")) return sendPage(res, 400, "Yahoo authorization declined", `<h1>Yahoo authorization did not complete</h1><p>${escapeHtml(url.searchParams.get("error"))}</p><a href="/">Try again</a>`);
+  if (url.searchParams.get("error")) return redirectToResult(res, 400, "Yahoo authorization declined", `<h1>Yahoo authorization did not complete</h1><p>${escapeHtml(url.searchParams.get("error"))}</p><a href="/">Try again</a>`);
   const code = url.searchParams.get("code");
-  if (!session || !code || Date.now() - session.issued > 600_000) return sendPage(res, 400, "Session expired", "<h1>Connection expired</h1><p>Start a new Yahoo connection from the local app.</p><a href="/">Try again</a>");
+  if (!session || !code || Date.now() - session.issued > 600_000) return redirectToResult(res, 400, "Session expired", "<h1>Connection expired</h1><p>Start a new Yahoo connection from the local app.</p><a href="/">Try again</a>");
   try {
     const accessToken = await exchangeCode(code, session.verifier);
     const data = await readLeagues(accessToken);
     const leagues = [...extractLeagues(data)].map(([key, name]) => `<li>${escapeHtml(name)} <small>(${escapeHtml(key)})</small></li>`).join("");
-    return sendPage(res, 200, "Yahoo connected", `<h1>Yahoo Fantasy connected</h1><p>The app successfully read your NFL fantasy league data. This connection test does not save tokens or make roster changes.</p>${leagues ? `<h2>Your leagues</h2><ul>${leagues}</ul>` : "<p>No current NFL leagues were found in the response.</p>"}<a href="/">Back to Fantasy Assistant</a><details><summary>View API response</summary><pre>${escapeHtml(JSON.stringify(data, null, 2))}</pre></details>`);
+    return redirectToResult(res, 200, "Yahoo connected", `<h1>Yahoo Fantasy connected</h1><p>The app successfully read your NFL fantasy league data. This connection test does not save tokens or make roster changes.</p>${leagues ? `<h2>Your leagues</h2><ul>${leagues}</ul>` : "<p>No current NFL leagues were found in the response.</p>"}<a href="/">Back to Fantasy Assistant</a><details><summary>View API response</summary><pre>${escapeHtml(JSON.stringify(data, null, 2))}</pre></details>`);
   } catch (error) {
-    return sendPage(res, 502, "Yahoo connection failed", `<h1>Yahoo connection failed</h1><p>${escapeHtml(error.message)}</p><a href="/">Try again</a>`);
+    return redirectToResult(res, 502, "Yahoo connection failed", `<h1>Yahoo connection failed</h1><p>${escapeHtml(error.message)}</p><a href="/">Try again</a>`);
   }
 }
 
@@ -82,6 +100,13 @@ const server = http.createServer((req, res) => {
   if (req.method !== "GET") return sendPage(res, 405, "Method not allowed", "<h1>Method not allowed</h1>");
   if (url.pathname === "/start") return startAuthorization(res);
   if (url.pathname === "/finish") return void finishAuthorization(url, res);
+  if (url.pathname === "/result") {
+    const ticket = url.searchParams.get("ticket");
+    const result = ticket ? results.get(ticket) : null;
+    if (ticket) results.delete(ticket);
+    if (!result || Date.now() - result.issued > 300_000) return sendPage(res, 404, "Result expired", "<h1>Result expired</h1><a href=\"/\">Try again</a>");
+    return sendPage(res, result.status, result.title, result.body);
+  }
   if (url.pathname === "/health") { res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" }); return res.end(JSON.stringify({ ready: true })); }
   if (url.pathname !== "/") return sendPage(res, 404, "Not found", "<h1>Page not found</h1>");
   return sendPage(res, 200, "Connect Yahoo", "<h1>Connect Yahoo Fantasy</h1><p>Authorize read-only access to check that your NFL leagues are available. This test runs on your computer and does not save your tokens.</p><a class=\"button\" href=\"/start\">Connect Yahoo</a>");
